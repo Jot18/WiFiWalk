@@ -433,6 +433,153 @@ class MainActivity : Activity() {
         })
     }
 
+
+    private fun chooseSatelliteArea() {
+        val spans = doubleArrayOf(60.0, 140.0, 300.0, 600.0)
+        val descriptions = arrayOf(
+            "60 m — house", "140 m — house & garden",
+            "300 m — nearby properties", "600 m — neighborhood"
+        )
+        AlertDialog.Builder(this).setTitle("Satellite area width")
+            .setSingleChoiceItems(descriptions, spans.indexOfFirst { it == satelliteSpan }) { dialog, index ->
+                satelliteSpan = spans[index]
+                dialog.dismiss()
+                render()
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun promptSatelliteCoordinates(survey: WifiSurvey) {
+        if (survey.samples.isNotEmpty()) {
+            showError("Create a new survey", "Changing the satellite background would invalidate existing point positions. Create a new survey first.")
+            return
+        }
+        val input = EditText(this).apply {
+            hint = "Latitude, longitude (e.g. 39.1, -121.6)"
+            setSingleLine(true)
+            setTextColor(this@MainActivity.foreground)
+            setHintTextColor(muted)
+        }
+        AlertDialog.Builder(this).setTitle("Center satellite image on coordinates")
+            .setMessage("Enter coordinates from your phone or a map. Only the requested area is sent to USGS.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Load satellite") { _, _ ->
+                val parts = input.text.toString().split(",").map { it.trim().toDoubleOrNull() }
+                val lat = parts.getOrNull(0)
+                val lon = parts.getOrNull(1)
+                if (parts.size != 2 || lat == null || lon == null || lat !in -85.0..85.0 || lon !in -180.0..180.0) {
+                    showError("Invalid coordinates", "Enter latitude and longitude separated by a comma, e.g. 39.1, -121.6.")
+                } else {
+                    fetchSatelliteForSurvey(survey, lat, lon)
+                }
+            }.show()
+    }
+
+    private fun usePhonePositionForSatellite(survey: WifiSurvey) {
+        if (survey.samples.isNotEmpty()) {
+            showError("Create a new survey", "Changing the background after collecting readings would move their map positions. Create a new survey before loading another satellite image.")
+            return
+        }
+        if (!wifi.hasPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
+            return
+        }
+        if (!locationServicesOn()) {
+            AlertDialog.Builder(this).setTitle("Enable Location")
+                .setMessage("Android Location must be enabled to center an aerial image near you.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                .show()
+            return
+        }
+        val manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        val provider = when {
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            else -> null
+        } ?: return
+        toast("Finding your location…")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val cancellation = CancellationSignal()
+            var finished = false
+            val handler = Handler(Looper.getMainLooper())
+            handler.postDelayed({
+                if (!finished) {
+                    finished = true
+                    cancellation.cancel()
+                    lastLocationOrExplain(manager, provider, survey)
+                }
+            }, 15000L)
+            try {
+                manager.getCurrentLocation(provider, cancellation, mainExecutor) { position ->
+                    if (finished || isFinishing) return@getCurrentLocation
+                    finished = true
+                    if (position != null) fetchSatelliteForSurvey(survey, position.latitude, position.longitude)
+                    else lastLocationOrExplain(manager, provider, survey)
+                }
+            } catch (ex: Exception) {
+                if (!finished) {
+                    finished = true
+                    lastLocationOrExplain(manager, provider, survey)
+                }
+            }
+        } else {
+            lastLocationOrExplain(manager, provider, survey)
+        }
+    }
+
+    private fun lastLocationOrExplain(manager: LocationManager, provider: String, survey: WifiSurvey) {
+        val location = try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null }
+        val recent = location?.takeIf {
+            (System.currentTimeMillis() - it.time) in 0..300000
+        }
+        if (recent == null) {
+            showError("Location unavailable", "No recent location fix was available. Go near a window or outdoors, or use Enter coordinates.")
+        } else {
+            fetchSatelliteForSurvey(survey, recent.latitude, recent.longitude)
+        }
+    }
+
+    private fun fetchSatelliteForSurvey(survey: WifiSurvey, lat: Double, lon: Double) {
+        if (satelliteLoading) return
+        if (survey.samples.isNotEmpty()) {
+            showError("Create a new survey", "The map cannot be re-centered after readings have been recorded. Create a new survey.")
+            return
+        }
+        val span = satelliteSpan
+        satelliteLoading = true
+        render()
+        Toast.makeText(this, "Downloading USGS aerial imagery…", Toast.LENGTH_LONG).show()
+        Thread {
+            try {
+                val image = SatelliteImagery.download(lat, lon, span)
+                runOnUiThread {
+                    if (isFinishing) return@runOnUiThread
+                    satelliteLoading = false
+                    try {
+                        if (surveys.none { it.id == survey.id }) return@runOnUiThread
+                        store.importSatellite(survey, image, lat, lon, span)
+                        persist()
+                        render()
+                        toast("Satellite background loaded and saved")
+                    } catch (e: Exception) {
+                        render()
+                        showError("Cannot save satellite map", e.message)
+                    }
+                }
+            } catch (ex: Exception) {
+                runOnUiThread {
+                    if (isFinishing) return@runOnUiThread
+                    satelliteLoading = false
+                    render()
+                    showError("Satellite image unavailable",
+                        (ex.message ?: "Network request failed") +
+                        "\n\nTry again with internet access or import your own satellite screenshot as a floor plan.")
+                }
+            }
+        }.start()
+    }
+
     private fun locationServicesOn(): Boolean {
         val manager = getSystemService(LOCATION_SERVICE) as LocationManager
         return try {
