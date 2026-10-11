@@ -63,7 +63,7 @@ class WifiReader(private val context: Context) {
     fun hasPermission(): Boolean = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 
-    fun read(): Reading? {
+    fun read(forceFresh: Boolean = false): Reading? {
         if (!hasPermission() || !wifiManager.isWifiEnabled) return null
         val wifiNetworkAvailable = try {
             connectivity.allNetworks.any { network ->
@@ -73,7 +73,7 @@ class WifiReader(private val context: Context) {
         if (!wifiNetworkAvailable) return null
 
         val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            cachedInfo ?: tryGetLegacyInfo()
+            if (forceFresh) (tryGetLegacyInfo() ?: cachedInfo) else (cachedInfo ?: tryGetLegacyInfo())
         } else {
             tryGetLegacyInfo()
         } ?: return null
