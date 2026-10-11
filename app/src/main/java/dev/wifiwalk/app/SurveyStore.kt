@@ -163,7 +163,11 @@ class SurveyStore(private val context: Context) {
     /** Write a verified JPEG snapshot atomically; metadata is saved by the activity. */
     fun importSatellite(survey: WifiSurvey, bytes: ByteArray, lat: Double, lon: Double, spanMeters: Double) {
         if (survey.samples.isNotEmpty()) {
-            throw IOException("Create a new survey before changing the map background")
+            // Allow replacing blurry imagery while keeping the *same* map extent.
+            // Otherwise existing normalized map sample positions would be shifted.
+            val sameExtent = survey.satelliteLat == lat &&
+                survey.satelliteLon == lon && survey.satelliteSpanMeters == spanMeters
+            if (!sameExtent) throw IOException("Create a new survey before moving the map background")
         }
         val file = File(plansDir, "${survey.id}.plan")
         val temp = File(plansDir, "${survey.id}.tmp")
