@@ -99,6 +99,11 @@ class MainActivity : Activity() {
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         render()
+        // Reading Wi-Fi metadata requires runtime location permission on Android.
+        // Ask when the app first opens rather than waiting for a map tap.
+        if (!wifi.hasPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
+        }
     }
 
     override fun onStart() {
@@ -200,22 +205,41 @@ class MainActivity : Activity() {
         container.addView(choose)
         container.addView(gap(12))
         val connection = wifi.read()
+        val needsPermission = !wifi.hasPermission()
+        val needsLocation = !locationServicesOn()
         val signal = panel()
         val label = row()
         label.addView(text("LIVE CONNECTION", 10f, muted, true), LinearLayout.LayoutParams(0, -2, 1f))
-        label.addView(text(if (connection == null) "● Not available" else "● Connected",
-            11f, if (connection == null) red else teal, true))
+        val state = when {
+            needsPermission -> "● Permission needed"
+            needsLocation -> "● Location is off"
+            connection == null -> "● Not available"
+            else -> "● Connected"
+        }
+        label.addView(text(state, 11f, if (connection == null) red else teal, true))
         signal.addView(label)
         signal.addView(gap(8))
         signal.addView(text(connection?.ssid ?: "Wi-Fi reading unavailable", 18f, foreground, true))
-        val desc = if (connection == null) {
-            "Connect to Wi-Fi, allow precise location, and enable Location in Android Settings."
-        } else {
-            val band = frequencyBand(connection.frequencyMhz)
-            "${connection.rssi} dBm  ·  $band  ·  ${connection.frequencyMhz} MHz\nAP: ${connection.bssid}"
+        val desc = when {
+            needsPermission -> "Allow precise location access to read your Wi-Fi signal and access-point details. We do not collect GPS coordinates."
+            needsLocation -> "Turn on the phone's Location switch; Android requires it for Wi-Fi information."
+            connection == null -> "Check that Wi-Fi is connected, then refresh. If the problem persists, reopen WiFiWalk."
+            else -> {
+                val band = frequencyBand(connection.frequencyMhz)
+                "${connection.rssi} dBm  ·  $band  ·  ${connection.frequencyMhz} MHz\nAP: ${connection.bssid}"
+            }
         }
         signal.addView(text(desc, 12f, muted))
         signal.addView(gap(9))
+        when {
+            needsPermission -> signal.addView(button("Allow Wi-Fi access", true) {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
+            })
+            needsLocation -> signal.addView(button("Open Location settings", true) {
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            })
+        }
+        signal.addView(gap(7))
         signal.addView(button("↻  Refresh connection") { render() })
         container.addView(signal)
         container.addView(gap(14))
@@ -377,6 +401,14 @@ class MainActivity : Activity() {
         })
     }
 
+    private fun locationServicesOn(): Boolean {
+        val manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        return try {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (_: Exception) { false }
+    }
+
     private fun recordAt(x: Float, y: Float) {
         if (!saveEnabled) { toast("Saved data is unavailable; sampling disabled"); return }
         if (!wifi.hasPermission()) {
@@ -384,12 +416,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
             return
         }
-        val manager = getSystemService(LOCATION_SERVICE) as LocationManager
-        val enabled = try {
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-        } catch (_: Exception) { false }
-        if (!enabled) {
+        if (!locationServicesOn()) {
             AlertDialog.Builder(this)
                 .setTitle("Turn on Location")
                 .setMessage("Android restricts Wi-Fi identifiers when system Location is disabled. " +
@@ -556,10 +583,12 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_LOCATION) {
             val point = pendingPoint
             pendingPoint = null
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && point != null) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
                 wifi.stop(); wifi.start()
-                recordAt(point.first, point.second)
+                render()
+                if (point != null) recordAt(point.first, point.second)
             } else {
+                render()
                 showError("Permission needed", "Android requires precise location permission to provide " +
                     "Wi-Fi SSID, BSSID and signal metadata. WiFiWalk does not read GPS coordinates.")
             }
