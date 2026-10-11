@@ -440,7 +440,7 @@ class MainActivity : Activity() {
         if (!saveEnabled) { toast("Storage unavailable"); return }
         val input = EditText(this).apply {
             hint = "e.g. Office - before router move"
-            setTextColor(foreground)
+            setTextColor(this@MainActivity.foreground)
             setHintTextColor(muted)
             setSingleLine(true)
             setPadding(dp(15), dp(8), dp(15), dp(8))
@@ -481,7 +481,7 @@ class MainActivity : Activity() {
     private fun renameSurvey(survey: WifiSurvey) {
         val input = EditText(this).apply {
             setText(survey.name)
-            setTextColor(foreground)
+            setTextColor(this@MainActivity.foreground)
             setSingleLine(true)
             setPadding(dp(15), dp(8), dp(15), dp(8))
         }
