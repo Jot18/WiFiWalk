@@ -485,8 +485,17 @@ class MainActivity : Activity() {
         container.addView(gap(7))
         addRowButtons(container,
             button("Enter coordinates") { promptSatelliteCoordinates(survey) },
-            button("Area: ${satelliteSpan.toInt()} m  ▾") { chooseSatelliteArea() }
+            button("Area: ${distanceLabel(satelliteSpan)}  ▾") { chooseSatelliteArea() }
         )
+        container.addView(gap(7))
+        container.addView(button(if (useFeet) "Units: Feet (ft)  ▾" else "Units: Meters (m)  ▾") {
+            AlertDialog.Builder(this).setTitle("Distance units")
+                .setItems(arrayOf("Feet (US)", "Meters (metric)")) { _, index ->
+                    useFeet = index == 0
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("feet", useFeet).apply()
+                    render()
+                }.show()
+        })
         container.addView(gap(6))
         if (survey.satelliteLat != null && survey.satelliteLon != null &&
             survey.satelliteSpanMeters != null) {
@@ -622,15 +631,19 @@ class MainActivity : Activity() {
     }
 
 
+    private fun distanceLabel(meters: Double): String =
+        if (useFeet) "${Math.round(meters * 3.280839895)} ft"
+        else "${Math.round(meters)} m"
+
     private fun chooseSatelliteArea() {
-        val spans = doubleArrayOf(40.0, 60.0, 100.0, 140.0, 300.0, 600.0)
-        val descriptions = arrayOf(
-            "40 m — close-up of house", "60 m — house",
-            "100 m — house & garden", "140 m — nearby houses",
-            "300 m — neighborhood", "600 m — wider neighborhood"
-        )
+        val spans = if (useFeet) {
+            doubleArrayOf(15.24, 30.48, 60.96, 91.44, 152.4, 304.8)
+        } else {
+            doubleArrayOf(40.0, 60.0, 100.0, 140.0, 300.0, 600.0)
+        }
+        val descriptions = spans.map { distanceLabel(it) + " square area" }.toTypedArray()
         AlertDialog.Builder(this).setTitle("Satellite area width")
-            .setSingleChoiceItems(descriptions, spans.indexOfFirst { it == satelliteSpan }) { dialog, index ->
+            .setSingleChoiceItems(descriptions, spans.indexOfFirst { kotlin.math.abs(it - satelliteSpan) < 0.01 }) { dialog, index ->
                 satelliteSpan = spans[index]
                 dialog.dismiss()
                 render()
