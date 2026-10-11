@@ -479,6 +479,9 @@ class MainActivity : Activity() {
         container.addView(gap(8))
 
         // Satellite imagery is an optional online background, not a live satellite feed.
+        container.addView(button(if (imageryMode == "esri") "Imagery: Esri World Imagery  ▾"
+            else "Imagery: USGS / USDA  ▾") { chooseImageryProvider() })
+        container.addView(gap(7))
         container.addView(button(if (satelliteLoading) "Loading aerial imagery…" else "🛰  Satellite — use my location", true) {
             if (!satelliteLoading) usePhonePositionForSatellite(survey)
         })
@@ -502,9 +505,9 @@ class MainActivity : Activity() {
             container.addView(text("Satellite centered: ${"%.5f".format(Locale.US, survey.satelliteLat)}, " +
                 "${"%.5f".format(Locale.US, survey.satelliteLon)}  •  Saved for offline viewing", 11f, muted))
             container.addView(gap(7))
-            container.addView(button("↻  Refresh sharper satellite image") {
+            container.addView(button("↻  Refresh current area with selected imagery") {
                 if (!satelliteLoading) fetchSatelliteForSurvey(survey,
-                    survey.satelliteLat!!, survey.satelliteLon!!, survey.satelliteSpanMeters!!)
+                    survey.satelliteLat!!, survey.satelliteLon!!, survey.satelliteSpanMeters!!, imageryMode)
             })
             container.addView(gap(7))
         }
@@ -517,6 +520,11 @@ class MainActivity : Activity() {
         map.plan = SurveyMapView.decodeScaled(store.floorPlanFile(survey)?.absolutePath)
         map.onMapTap = { x, y -> recordAt(x, y) }
         container.addView(map, LinearLayout.LayoutParams(-1, dp(350)))
+        if (survey.satelliteLat != null) {
+            container.addView(text(if (survey.satelliteProvider == "esri")
+                "Imagery © Esri and its imagery contributors. Esri terms apply; noncommercial use only."
+                else "Aerial imagery: USGS The National Map / USDA NAIP.", 11f, muted))
+        }
         container.addView(gap(8))
         container.addView(text("Stand at the location you want to test, then tap that spot on the map. " +
             "The phone's GPS only centers the satellite image; it does not identify your exact indoor room.",
@@ -621,6 +629,8 @@ class MainActivity : Activity() {
             "• Survey images remain in private app storage. Export CSV before uninstalling or clearing app data.",
             "• Satellite downloads require Internet and reveal the requested map area to USGS. No Wi-Fi survey readings are uploaded.",
             "• USGS / USDA aerial imagery capture dates vary. This is not live satellite imagery.",
+            "• Optional Esri World Imagery is subject to Esri terms and requires noncommercial usage.",
+            "• Device measurements are local; selected map area is sent to the imagery provider.",
             "• No background services are requested."
         ).forEach { notes.addView(text(it, 12f, muted)); notes.addView(gap(7)) }
         container.addView(notes)
@@ -630,6 +640,22 @@ class MainActivity : Activity() {
         })
     }
 
+
+    private fun chooseImageryProvider() {
+        val choices = arrayOf(
+            "USGS / USDA public imagery (open data; may be softer)",
+            "Esri World Imagery (higher detail possible; noncommercial terms)"
+        )
+        AlertDialog.Builder(this).setTitle("Choose aerial imagery source")
+            .setMessage("Esri is an optional third-party service. Only choose it for permitted noncommercial use. " +
+                "The requested map area is sent to the provider. Image detail and availability vary.")
+            .setSingleChoiceItems(choices, if (imageryMode == "esri") 1 else 0) { dialog, choice ->
+                imageryMode = if (choice == 1) "esri" else "usgs"
+                getPreferences(MODE_PRIVATE).edit().putString("imagery_mode", imageryMode).apply()
+                dialog.dismiss()
+                render()
+            }.setNegativeButton("Cancel", null).show()
+    }
 
     private fun distanceLabel(meters: Double): String =
         if (useFeet) "${Math.round(meters * 3.280839895)} ft"
@@ -743,7 +769,8 @@ class MainActivity : Activity() {
     }
 
     private fun fetchSatelliteForSurvey(survey: WifiSurvey, lat: Double, lon: Double,
-                                        spanMeters: Double = satelliteSpan) {
+                                        spanMeters: Double = satelliteSpan,
+                                        provider: String = imageryMode) {
         if (satelliteLoading) return
         if (survey.samples.isNotEmpty()) {
             val sameExtent = survey.satelliteLat == lat &&
@@ -761,16 +788,16 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Downloading USDA / USGS aerial imagery…", Toast.LENGTH_LONG).show()
         Thread {
             try {
-                val image = SatelliteImagery.download(lat, lon, span)
+                val image = SatelliteImagery.download(lat, lon, span, provider)
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     satelliteLoading = false
                     try {
                         if (surveys.none { it.id == survey.id }) return@runOnUiThread
-                        store.importSatellite(survey, image, lat, lon, span)
+                        store.importSatellite(survey, image, lat, lon, span, provider)
                         persist()
                         render()
-                        toast("Satellite background loaded and saved")
+                        toast("Aerial image loaded and saved")
                     } catch (e: Exception) {
                         render()
                         showError("Cannot save satellite map", e.message)
