@@ -531,7 +531,7 @@ class MainActivity : Activity() {
     private fun lastLocationOrExplain(manager: LocationManager, provider: String, survey: WifiSurvey) {
         val location = try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null }
         val recent = location?.takeIf {
-            (System.currentTimeMillis() - it.time) in 0..300000
+            (System.currentTimeMillis() - it.time) in 0L..300_000L
         }
         if (recent == null) {
             showError("Location unavailable", "No recent location fix was available. Go near a window or outdoors, or use Enter coordinates.")
