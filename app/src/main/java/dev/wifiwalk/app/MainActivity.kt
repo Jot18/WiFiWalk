@@ -308,6 +308,152 @@ class MainActivity : Activity() {
         })
     }
 
+    /** Update visible widgets in place; never reset scrolling when Refresh is tapped. */
+    private fun updateLiveWidgets() {
+        if (!::wifi.isInitialized || !::monitor.isInitialized) return
+        val reading = monitor.latest
+        val needsPermission = !wifi.hasPermission()
+        val needsLocation = !locationServicesOn()
+        connState?.text = when {
+            needsPermission -> "● Permission needed"
+            needsLocation -> "● Location off"
+            reading == null -> "● Not available"
+            else -> "● Connected"
+        }
+        connState?.setTextColor(if (reading == null) red else teal)
+        connTitle?.text = reading?.ssid ?: "Wi-Fi reading unavailable"
+        connDesc?.text = when {
+            needsPermission -> "Allow precise location to read Wi-Fi signal and SSID."
+            needsLocation -> "Turn on Android Location in system settings."
+            reading == null -> "No valid reading. Check Wi-Fi connection and tap Refresh."
+            else -> "${reading.rssi} dBm  ·  ${frequencyBand(reading.frequencyMhz)}  ·  " +
+                "${reading.frequencyMhz} MHz\nAP: ${reading.bssid}\n${monitor.lastResult}"
+        }
+        signalSummary?.text = if (reading == null) {
+            "Wi-Fi is not available — check the Wi-Fi and Location settings."
+        } else {
+            "${reading.ssid}  ·  ${reading.rssi} dBm\n" +
+            "Band: ${frequencyBand(reading.frequencyMhz)}   Frequency: ${reading.frequencyMhz} MHz\n" +
+            "Access point: ${reading.bssid}\n" +
+            "PHY link speed: ${reading.linkSpeedMbps} Mbps (not internet speed)\n" +
+            monitor.lastResult
+        }
+        signalChart?.invalidate()
+        roamContainer?.let { parent ->
+            parent.removeAllViews()
+            if (monitor.roams.isEmpty()) {
+                parent.addView(text("No access point changes recorded yet. Walk between mesh units with this app open.", 12f, muted))
+            } else {
+                monitor.roams.take(8).forEach { event ->
+                    val card = panel()
+                    card.addView(text(time(event.at), 11f, teal, true))
+                    card.addView(text("${event.from}  →  ${event.to}", 12f, foreground))
+                    parent.addView(card)
+                    parent.addView(gap(6))
+                }
+            }
+        }
+    }
+
+    private fun renderSignalDashboard() {
+        val summaryPanel = panel()
+        summaryPanel.addView(text("LIVE WI-FI SIGNAL", 11f, teal, true))
+        summaryPanel.addView(gap(9))
+        signalSummary = text("Collecting signal measurements…", 14f, foreground)
+        summaryPanel.addView(signalSummary)
+        summaryPanel.addView(gap(10))
+        summaryPanel.addView(button("↻ Sample signal now") {
+            val value = monitor.sample(true)
+            toast(if (value != null) "New reading: ${value.rssi} dBm" else "Reading unavailable")
+        })
+        container.addView(summaryPanel)
+        container.addView(gap(12))
+
+        val graphPanel = panel()
+        graphPanel.addView(text("Signal strength trend", 18f, foreground, true))
+        graphPanel.addView(gap(4))
+        graphPanel.addView(text("Live connected Wi-Fi RSSI (dBm), sampled about every 1.5 seconds while the app is open.", 11f, muted))
+        signalChart = SignalChartView(this, monitor)
+        graphPanel.addView(signalChart, LinearLayout.LayoutParams(-1, dp(225)))
+        container.addView(graphPanel)
+        container.addView(gap(12))
+
+        val roamingPanel = panel()
+        roamingPanel.addView(text("Access point roaming", 18f, foreground, true))
+        roamingPanel.addView(gap(5))
+        roamingPanel.addView(text("Logs connected BSSID transitions while WiFiWalk stays in the foreground. " +
+            "Roaming detection is based on observed samples and may miss very quick transitions.", 11f, muted))
+        roamingPanel.addView(gap(10))
+        roamContainer = column()
+        roamingPanel.addView(roamContainer)
+        container.addView(roamingPanel)
+    }
+
+    private fun renderNearbyScan() {
+        val header = panel()
+        header.addView(text("Nearby Wi-Fi networks", 18f, foreground, true))
+        header.addView(gap(5))
+        header.addView(text("Shows Android's available scan results. Some may be cached; " +
+            "Android restricts repeated scans. This is not a real-time spectrum analyzer.", 11f, muted))
+        header.addView(gap(10))
+        header.addView(button("↻ Scan nearby networks", true) {
+            scanner.refresh { if (activeTab == 2 && ::container.isInitialized) render() }
+        })
+        header.addView(gap(8))
+        header.addView(text(scanner.status, 11f, muted))
+        container.addView(header)
+        container.addView(gap(12))
+
+        if (scanner.results.isEmpty()) scanner.loadCached()
+        val filterRow = row()
+        listOf("All", "2.4 GHz", "5 GHz", "6 GHz").forEachIndexed { index, band ->
+            val b = button(band) { scanBand = band; render() }
+            b.background = shape(if (scanBand == band) Color.rgb(21, 76, 78) else surface,
+                10, if (scanBand == band) teal else border)
+            val lp = LinearLayout.LayoutParams(0, -2, 1f)
+            if (index > 0) lp.leftMargin = dp(5)
+            filterRow.addView(b, lp)
+        }
+        container.addView(filterRow)
+        container.addView(gap(12))
+        val filtered = scanner.results.filter { scanBand == "All" || it.band == scanBand }
+        container.addView(text("${filtered.size} visible access points  ·  " +
+            "${filtered.map { it.ssid }.distinct().size} network names", 13f, muted))
+        container.addView(gap(8))
+        if (filtered.isEmpty()) {
+            val empty = panel()
+            empty.addView(text("No results for this band. Tap Scan and wait for Android.", 12f, muted))
+            container.addView(empty)
+        }
+        filtered.take(35).forEach { network ->
+            val card = panel()
+            val line = row()
+            line.addView(text(network.ssid, 14f, foreground, true), LinearLayout.LayoutParams(0, -2, 1f))
+            line.addView(text("${network.rssi} dBm", 14f, SurveyMapView.strengthColor(network.rssi), true))
+            card.addView(line)
+            card.addView(gap(3))
+            card.addView(text("${network.band} · Channel ${network.channel} · ${network.security}\n" +
+                "AP: ${network.bssid} · ${network.ageSeconds}s old", 11f, muted))
+            container.addView(card)
+            container.addView(gap(6))
+        }
+
+        val channels = filtered.groupBy { it.band to it.channel }
+            .toList().sortedByDescending { it.second.size }.take(12)
+        if (channels.isNotEmpty()) {
+            container.addView(gap(12))
+            val health = panel()
+            health.addView(text("Channel usage — visible APs", 18f, foreground, true))
+            health.addView(text("Counts are not measurements of airtime congestion or interference.", 11f, muted))
+            health.addView(gap(8))
+            channels.forEach { (key, networks) ->
+                health.addView(text("${key.first}  ·  Channel ${key.second}: ${networks.size} visible AP(s)", 12f, foreground))
+                health.addView(gap(5))
+            }
+            container.addView(health)
+        }
+    }
+
     private fun renderMap(survey: WifiSurvey?) {
         if (survey == null) return
         val stats = row()
