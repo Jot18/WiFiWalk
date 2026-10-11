@@ -9,6 +9,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.location.LocationManager
+import android.location.Location
+import android.os.CancellationSignal
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -46,6 +50,8 @@ class MainActivity : Activity() {
     private var exportId: String? = null
     private var planImportId: String? = null
     private var saveEnabled = true
+    private var satelliteLoading = false
+    private var satelliteSpan = 140.0
     private lateinit var container: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,7 +108,7 @@ class MainActivity : Activity() {
         // Reading Wi-Fi metadata requires runtime location permission on Android.
         // Ask when the app first opens rather than waiting for a map tap.
         if (!wifi.hasPermission()) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
         }
     }
 
@@ -233,7 +239,7 @@ class MainActivity : Activity() {
         signal.addView(gap(9))
         when {
             needsPermission -> signal.addView(button("Allow Wi-Fi access", true) {
-                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
             })
             needsLocation -> signal.addView(button("Open Location settings", true) {
                 startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
@@ -289,6 +295,25 @@ class MainActivity : Activity() {
         actions.addView(button("Import plan") { openFloorPlanPicker(survey) })
         container.addView(actions)
         container.addView(gap(8))
+
+        // Satellite imagery is an optional online background, not a live satellite feed.
+        container.addView(button(if (satelliteLoading) "Loading USGS imagery…" else "🛰  Satellite — use my location", true) {
+            if (!satelliteLoading) usePhonePositionForSatellite(survey)
+        })
+        container.addView(gap(7))
+        addRowButtons(container,
+            button("Enter coordinates") { promptSatelliteCoordinates(survey) },
+            button("Area: ${satelliteSpan.toInt()} m  ▾") { chooseSatelliteArea() }
+        )
+        container.addView(gap(6))
+        if (survey.satelliteLat != null && survey.satelliteLon != null) {
+            container.addView(text("Satellite centered: ${"%.5f".format(Locale.US, survey.satelliteLat)}, " +
+                "${"%.5f".format(Locale.US, survey.satelliteLon)}  •  Saved for offline viewing", 11f, muted))
+            container.addView(gap(5))
+        }
+        container.addView(text("USGS aerial imagery needs internet to download. Imagery capture dates vary; " +
+            "using my location sends the selected area to USGS. Your Wi-Fi samples remain on-device.", 11f, muted))
+        container.addView(gap(8))
         val map = SurveyMapView(this)
         map.samples = readings.toList()
         map.heatmapVisible = heatmap
@@ -296,7 +321,8 @@ class MainActivity : Activity() {
         map.onMapTap = { x, y -> recordAt(x, y) }
         container.addView(map, LinearLayout.LayoutParams(-1, dp(350)))
         container.addView(gap(8))
-        container.addView(text("Tap a position on the map while standing there to record your connected Wi-Fi signal.",
+        container.addView(text("Stand at the location you want to test, then tap that spot on the map. " +
+            "The phone's GPS only centers the satellite image; it does not identify your exact indoor room.",
             12f, muted))
         container.addView(gap(10))
         val controls = row()
@@ -322,7 +348,7 @@ class MainActivity : Activity() {
         )
         container.addView(gap(8))
         container.addView(text("Heatmap is an estimate between readings, not a prediction of radio coverage. " +
-            "Take more samples for a more useful map.", 11f, muted))
+            "Take more samples for a more useful map. Satellite: USGS The National Map / USDA NAIP.", 11f, muted))
     }
 
     private fun renderReadings(survey: WifiSurvey?) {
@@ -348,9 +374,13 @@ class MainActivity : Activity() {
             card.addView(top)
             card.addView(gap(3))
             card.addView(text(sample.ssid, 14f, foreground, true))
+            val coordinates = if (sample.latitude != null && sample.longitude != null) {
+                "\nApprox. map coordinate: ${"%.6f".format(Locale.US, sample.latitude)}, " +
+                    "${"%.6f".format(Locale.US, sample.longitude)}"
+            } else ""
             card.addView(text("AP: ${sample.bssid}\n${frequencyBand(sample.frequencyMhz)}  ·  " +
                 "${sample.frequencyMhz} MHz  ·  X: ${"%.2f".format(Locale.US, sample.x)}, " +
-                "Y: ${"%.2f".format(Locale.US, sample.y)}", 11f, muted))
+                "Y: ${"%.2f".format(Locale.US, sample.y)}" + coordinates, 11f, muted))
             card.isClickable = true
             card.setOnClickListener {
                 AlertDialog.Builder(this).setTitle("Delete reading #$index?")
@@ -374,7 +404,7 @@ class MainActivity : Activity() {
         listOf(
             "1. Connect your Android phone to the Wi-Fi network you want to test.",
             "2. Allow precise location access. Android also needs system Location switched on to expose network identifiers.",
-            "3. Import an image of your floor plan, or use the blank map.",
+            "3. Load an optional aerial map from USGS with Satellite, enter coordinates, or import your own floor plan.",
             "4. Physically stand at a location and tap that same location on the map.",
             "5. Wait a moment after moving so the current Wi-Fi reading settles; then collect another point.",
             "6. Repeat throughout the building. Green/teal indicates stronger Wi-Fi, pink indicates weaker.",
@@ -392,7 +422,9 @@ class MainActivity : Activity() {
             "• Wi-Fi RSSI is not download speed. Speed tests and automatic router-handoff logging are planned for a future release.",
             "• Coverage shading interpolates readings and hides areas too far from measured points.",
             "• Survey images remain in private app storage. Export CSV before uninstalling or clearing app data.",
-            "• No INTERNET permission and no background services are requested."
+            "• Satellite downloads require Internet and reveal the requested map area to USGS. No Wi-Fi survey readings are uploaded.",
+            "• USGS / USDA aerial imagery capture dates vary. This is not live satellite imagery.",
+            "• No background services are requested."
         ).forEach { notes.addView(text(it, 12f, muted)); notes.addView(gap(7)) }
         container.addView(notes)
         container.addView(gap(12))
@@ -413,7 +445,7 @@ class MainActivity : Activity() {
         if (!saveEnabled) { toast("Saved data is unavailable; sampling disabled"); return }
         if (!wifi.hasPermission()) {
             pendingPoint = x to y
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_LOCATION)
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
             return
         }
         if (!locationServicesOn()) {
@@ -448,10 +480,15 @@ class MainActivity : Activity() {
 
     private fun saveReading(x: Float, y: Float, r: WifiReader.Reading) {
         val survey = activeSurvey() ?: return
+        val coord = if (survey.satelliteLat != null && survey.satelliteLon != null &&
+            survey.satelliteSpanMeters != null) {
+            SatelliteImagery.coordinateAt(survey.satelliteLat!!, survey.satelliteLon!!,
+                survey.satelliteSpanMeters!!, x, y)
+        } else null
         survey.samples.add(SignalSample(timestamp = System.currentTimeMillis(),
             x = x, y = y, rssi = r.rssi, ssid = r.ssid, bssid = r.bssid,
             frequencyMhz = r.frequencyMhz, linkSpeedMbps = r.linkSpeedMbps,
-            networkInfoAgeMs = r.ageMs))
+            networkInfoAgeMs = r.ageMs, latitude = coord?.first, longitude = coord?.second))
         persist()
         render()
         toast("Saved: ${r.rssi} dBm")
@@ -534,6 +571,11 @@ class MainActivity : Activity() {
     }
 
     private fun openFloorPlanPicker(survey: WifiSurvey) {
+        if (survey.samples.isNotEmpty()) {
+            showError("Create a new survey", "Replacing the background would move existing readings. " +
+                "Create a new survey first to preserve your data.")
+            return
+        }
         planImportId = survey.id
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -583,7 +625,7 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_LOCATION) {
             val point = pendingPoint
             pendingPoint = null
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            if (wifi.hasPermission()) {
                 wifi.stop(); wifi.start()
                 render()
                 if (point != null) recordAt(point.first, point.second)
