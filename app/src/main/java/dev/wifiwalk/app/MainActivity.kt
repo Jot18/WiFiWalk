@@ -311,8 +311,8 @@ class MainActivity : Activity() {
                 "${"%.5f".format(Locale.US, survey.satelliteLon)}  •  Saved for offline viewing", 11f, muted))
             container.addView(gap(5))
         }
-        container.addView(text("USGS aerial imagery needs internet to download. Imagery capture dates vary; " +
-            "using my location sends the selected area to USGS. Your Wi-Fi samples remain on-device.", 11f, muted))
+        container.addView(text("USDA / USGS aerial imagery needs internet to download. Capture dates vary; " +
+            "using my location sends the selected area to the imagery provider. Wi-Fi samples remain on-device.", 11f, muted))
         container.addView(gap(8))
         val map = SurveyMapView(this)
         map.samples = readings.toList()
@@ -348,7 +348,7 @@ class MainActivity : Activity() {
         )
         container.addView(gap(8))
         container.addView(text("Heatmap is an estimate between readings, not a prediction of radio coverage. " +
-            "Take more samples for a more useful map. Satellite: USGS The National Map / USDA NAIP.", 11f, muted))
+            "Take more samples for a more useful map. Satellite: USDA NAIP / USGS The National Map.", 11f, muted))
     }
 
     private fun renderReadings(survey: WifiSurvey?) {
@@ -549,7 +549,7 @@ class MainActivity : Activity() {
         val span = satelliteSpan
         satelliteLoading = true
         render()
-        Toast.makeText(this, "Downloading USGS aerial imagery…", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Downloading USDA / USGS aerial imagery…", Toast.LENGTH_LONG).show()
         Thread {
             try {
                 val image = SatelliteImagery.download(lat, lon, span)
