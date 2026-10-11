@@ -48,6 +48,9 @@ class MainActivity : Activity() {
     private var scanBand = "All"
     private var useFeet = true
     private var imageryMode = "usgs"
+    private var testingConnectivity = false
+    private var latestNetworkTest = "No test yet"
+    private var networkTestView: TextView? = null
     private var connState: TextView? = null
     private var connTitle: TextView? = null
     private var connDesc: TextView? = null
@@ -277,7 +280,7 @@ class MainActivity : Activity() {
         container.addView(gap(14))
 
         val tabs = row()
-        listOf("Map", "Signal", "Scan", "Readings", "Guide").forEachIndexed { i, title ->
+        listOf("Map", "Signal", "Scan", "Tests", "Readings", "Guide").forEachIndexed { i, title ->
             val b = button(title, filled = false) { activeTab = i; render() }
             b.background = shape(if (activeTab == i) Color.rgb(21, 76, 78) else surface, 12,
                 if (activeTab == i) teal else border)
@@ -294,11 +297,13 @@ class MainActivity : Activity() {
         signalSummary = null
         signalChart = null
         roamContainer = null
+        networkTestView = null
         when (activeTab) {
             0 -> renderMap(survey)
             1 -> renderSignalDashboard()
             2 -> renderNearbyScan()
-            3 -> renderReadings(survey)
+            3 -> renderNetworkTests()
+            4 -> renderReadings(survey)
             else -> renderGuide()
         }
         updateLiveWidgets()
@@ -452,6 +457,43 @@ class MainActivity : Activity() {
             }
             container.addView(health)
         }
+    }
+
+    private fun renderNetworkTests() {
+        val testing = panel()
+        testing.addView(text("Network responsiveness test", 18f, foreground, true))
+        testing.addView(gap(7))
+        testing.addView(text("Performs three small HTTPS requests to Google's connectivity-check endpoint. " +
+            "This is HTTP response time (including connection setup), not ICMP ping or download speed.", 12f, muted))
+        testing.addView(gap(10))
+        networkTestView = text(latestNetworkTest, 16f, teal, true)
+        testing.addView(networkTestView)
+        testing.addView(gap(12))
+        testing.addView(button(if (testingConnectivity) "Testing…" else "▶ Run internet response test", true) {
+            if (testingConnectivity) return@button
+            testingConnectivity = true
+            networkTestView?.text = "Testing three HTTPS requests…"
+            NetworkTests.measure(this) { report ->
+                testingConnectivity = false
+                latestNetworkTest = if (report.successes > 0) {
+                    "Response avg: ${report.averageMs} ms  ·  Minimum: ${report.minimumMs} ms  ·  " +
+                        "Maximum: ${report.maximumMs} ms\n" +
+                        "${report.successes} of ${report.attempts} requests completed"
+                } else "Test failed: ${report.error ?: "No successful response"}"
+                networkTestView?.text = latestNetworkTest
+            }
+        })
+        container.addView(testing)
+        container.addView(gap(12))
+        val notes = panel()
+        notes.addView(text("Coming next", 17f, foreground, true))
+        notes.addView(gap(8))
+        notes.addView(text("Local gateway diagnostics and accurate download/upload throughput testing " +
+            "against a server you choose. Link speed shown in Signal is not internet speed.", 13f, muted))
+        container.addView(notes)
+        container.addView(gap(10))
+        container.addView(text("No automated internet tests run in the background. " +
+            "A test sends ordinary HTTPS requests to google.com; Wi-Fi survey data is never included.", 11f, muted))
     }
 
     private fun renderMap(survey: WifiSurvey?) {
