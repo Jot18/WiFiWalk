@@ -12,7 +12,7 @@ import kotlin.math.ln
 import kotlin.math.tan
 
 /**
- * Downloads the latest imagery AVAILABLE from public USDA/USGS NAIP services.
+ * Downloads best available public-domain aerial imagery from USGS / USDA services.
  * These are aerial photographs from past acquisitions, NOT live imagery.
  * Saved JPEG snapshots and survey points work offline.
  */
@@ -44,12 +44,14 @@ object SatelliteImagery {
     }
 
     private fun requestImage(service: String, bbox: String, imagePixels: Int): ByteArray {
-        val url = "$service?bbox=$bbox&bboxSR=3857&imageSR=3857&size=$imagePixels%2C$imagePixels&format=jpg&f=image"
+        // High output resolution and high JPEG quality reduce avoidable resampling and artifacts.
+        // They cannot invent detail beyond what the source aerial photograph captured.
+        val url = "$service?bbox=$bbox&bboxSR=3857&imageSR=3857&size=$imagePixels%2C$imagePixels&format=jpg&compressionQuality=95&f=image"
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 11000
-            readTimeout = 19000
+            readTimeout = 17000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "WiFiWalk/0.2.1 (Android; open-source Wi-Fi survey)")
+            setRequestProperty("User-Agent", "WiFiWalk/0.2.2 (Android; open-source Wi-Fi survey)")
             setRequestProperty("Accept", "image/jpeg,image/*")
         }
         try {
@@ -90,10 +92,12 @@ object SatelliteImagery {
         val bbox = listOf(x - half, y - half, x + half, y + half).joinToString(",") {
             String.format(Locale.US, "%.3f", it)
         }
+        // NAIP Plus can incorporate finer-resolution high-resolution orthoimagery.
+        // Preferred source is not necessarily the most recently photographed at every location.
         val sources = listOf(
-            "USDA NAIP" to Pair(USDA_NAIP, 640),
-            "USGS NAIP" to Pair(USGS_NAIP, 512),
-            "USGS NAIP Plus" to Pair(USGS_NAIP_PLUS, 384)
+            "USGS NAIP Plus / HRO" to Pair(USGS_NAIP_PLUS, 1280),
+            "USDA NAIP" to Pair(USDA_NAIP, 1280),
+            "USGS NAIP" to Pair(USGS_NAIP, 1024)
         )
         val failures = mutableListOf<String>()
         for ((name, serviceAndSize) in sources) {
