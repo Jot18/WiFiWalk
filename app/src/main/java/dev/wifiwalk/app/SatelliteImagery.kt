@@ -28,6 +28,10 @@ object SatelliteImagery {
     private const val USGS_NAIP_PLUS =
         "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage"
 
+    // Optional high-detail Esri World Imagery. Terms/attribution apply, noncommercial only.
+    private const val ESRI_WORLD =
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export"
+
     private fun mercatorX(lon: Double): Double = Math.toRadians(lon) * RADIUS
     private fun mercatorY(lat: Double): Double {
         val v = lat.coerceIn(-MAX_LAT, MAX_LAT)
@@ -83,7 +87,7 @@ object SatelliteImagery {
     }
 
     /** Called on a worker thread; each fallback uses the same bounding box. */
-    fun download(latitude: Double, longitude: Double, spanMeters: Double): ByteArray {
+    fun download(latitude: Double, longitude: Double, spanMeters: Double, provider: String = "usgs"): ByteArray {
         require(latitude in -85.0..85.0 && longitude in -180.0..180.0)
         require(spanMeters in 40.0..2000.0)
         val x = mercatorX(longitude)
@@ -94,6 +98,10 @@ object SatelliteImagery {
         }
         // NAIP Plus can incorporate finer-resolution high-resolution orthoimagery.
         // Preferred source is not necessarily the most recently photographed at every location.
+        if (provider == "esri") {
+            // Do not silently fall back to a differently licensed image source.
+            return requestImage(ESRI_WORLD, bbox, 1280)
+        }
         val sources = listOf(
             "USGS NAIP Plus / HRO" to Pair(USGS_NAIP_PLUS, 1280),
             "USDA NAIP" to Pair(USDA_NAIP, 1280),
