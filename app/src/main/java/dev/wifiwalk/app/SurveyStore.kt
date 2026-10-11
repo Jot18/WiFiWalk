@@ -19,7 +19,9 @@ data class SignalSample(
     val bssid: String,
     val frequencyMhz: Int,
     val linkSpeedMbps: Int,
-    val networkInfoAgeMs: Long
+    val networkInfoAgeMs: Long,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )
 
 data class WifiSurvey(
@@ -27,6 +29,9 @@ data class WifiSurvey(
     var name: String,
     val created: Long = System.currentTimeMillis(),
     var planFile: String? = null,
+    var satelliteLat: Double? = null,
+    var satelliteLon: Double? = null,
+    var satelliteSpanMeters: Double? = null,
     val samples: MutableList<SignalSample> = mutableListOf()
 )
 
@@ -57,7 +62,9 @@ class SurveyStore(private val context: Context) {
                         bssid = sample.optString("bssid", "Unknown"),
                         frequencyMhz = sample.optInt("frequencyMhz"),
                         linkSpeedMbps = sample.optInt("linkSpeedMbps", -1),
-                        networkInfoAgeMs = sample.optLong("networkInfoAgeMs", -1L)
+                        networkInfoAgeMs = sample.optLong("networkInfoAgeMs", -1L),
+                        latitude = if (sample.has("latitude") && !sample.isNull("latitude")) sample.optDouble("latitude") else null,
+                        longitude = if (sample.has("longitude") && !sample.isNull("longitude")) sample.optDouble("longitude") else null
                     )
                 }
                 surveys += WifiSurvey(
@@ -65,6 +72,9 @@ class SurveyStore(private val context: Context) {
                     name = obj.optString("name", "Untitled survey"),
                     created = obj.optLong("created"),
                     planFile = obj.optString("planFile").takeIf { it.isNotBlank() },
+                    satelliteLat = if (obj.has("satelliteLat") && !obj.isNull("satelliteLat")) obj.optDouble("satelliteLat") else null,
+                    satelliteLon = if (obj.has("satelliteLon") && !obj.isNull("satelliteLon")) obj.optDouble("satelliteLon") else null,
+                    satelliteSpanMeters = if (obj.has("satelliteSpanMeters") && !obj.isNull("satelliteSpanMeters")) obj.optDouble("satelliteSpanMeters") else null,
                     samples = samples
                 )
             }
@@ -76,7 +86,7 @@ class SurveyStore(private val context: Context) {
     }
 
     fun save(surveys: List<WifiSurvey>) {
-        val root = JSONObject().put("schemaVersion", 1)
+        val root = JSONObject().put("schemaVersion", 2)
         val arr = JSONArray()
         surveys.forEach { survey ->
             val sampleArray = JSONArray()
@@ -91,13 +101,18 @@ class SurveyStore(private val context: Context) {
                     .put("bssid", s.bssid)
                     .put("frequencyMhz", s.frequencyMhz)
                     .put("linkSpeedMbps", s.linkSpeedMbps)
-                    .put("networkInfoAgeMs", s.networkInfoAgeMs))
+                    .put("networkInfoAgeMs", s.networkInfoAgeMs)
+                    .put("latitude", s.latitude)
+                    .put("longitude", s.longitude))
             }
             arr.put(JSONObject()
                 .put("id", survey.id)
                 .put("name", survey.name)
                 .put("created", survey.created)
                 .put("planFile", survey.planFile ?: "")
+                .put("satelliteLat", survey.satelliteLat)
+                .put("satelliteLon", survey.satelliteLon)
+                .put("satelliteSpanMeters", survey.satelliteSpanMeters)
                 .put("samples", sampleArray))
         }
         root.put("surveys", arr)
@@ -137,6 +152,32 @@ class SurveyStore(private val context: Context) {
             if (file.exists() && !file.delete()) throw IOException("Cannot replace previous floor plan")
             if (!temp.renameTo(file)) throw IOException("Unable to save imported image")
             survey.planFile = file.name
+            survey.satelliteLat = null
+            survey.satelliteLon = null
+            survey.satelliteSpanMeters = null
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** Write a verified JPEG snapshot atomically; metadata is saved by the activity. */
+    fun importSatellite(survey: WifiSurvey, bytes: ByteArray, lat: Double, lon: Double, spanMeters: Double) {
+        if (survey.samples.isNotEmpty()) {
+            throw IOException("Create a new survey before changing the map background")
+        }
+        val file = File(plansDir, "${survey.id}.plan")
+        val temp = File(plansDir, "${survey.id}.tmp")
+        try {
+            temp.writeBytes(bytes)
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(temp.absolutePath, opts)
+            if (opts.outWidth < 200 || opts.outHeight < 200) throw IOException("Invalid satellite image")
+            if (file.exists() && !file.delete()) throw IOException("Cannot replace previous map")
+            if (!temp.renameTo(file)) throw IOException("Cannot save satellite map")
+            survey.planFile = file.name
+            survey.satelliteLat = lat
+            survey.satelliteLon = lon
+            survey.satelliteSpanMeters = spanMeters
         } finally {
             temp.delete()
         }
@@ -154,7 +195,7 @@ class SurveyStore(private val context: Context) {
 
     fun toCsv(survey: WifiSurvey): String {
         val csv = StringBuilder("\uFEFF")
-        csv.append("survey,sample_id,time_utc,x_normalized,y_normalized,rssi_dbm,ssid,bssid,frequency_mhz,band,link_speed_mbps,metadata_age_ms\r\n")
+        csv.append("survey,sample_id,time_utc,x_normalized,y_normalized,rssi_dbm,ssid,bssid,frequency_mhz,band,link_speed_mbps,metadata_age_ms,latitude,longitude\r\n")
         survey.samples.forEach { s ->
             val date = java.time.Instant.ofEpochMilli(s.timestamp).toString()
             val band = when (s.frequencyMhz) {
@@ -168,7 +209,9 @@ class SurveyStore(private val context: Context) {
                 "%.5f".format(java.util.Locale.US, s.y), s.rssi.toString(),
                 s.ssid, s.bssid, s.frequencyMhz.toString(), band,
                 s.linkSpeedMbps.takeIf { it >= 0 }?.toString() ?: "",
-                s.networkInfoAgeMs.takeIf { it >= 0 }?.toString() ?: ""
+                s.networkInfoAgeMs.takeIf { it >= 0 }?.toString() ?: "",
+                s.latitude?.let { "%.7f".format(java.util.Locale.US, it) } ?: "",
+                s.longitude?.let { "%.7f".format(java.util.Locale.US, it) } ?: ""
             )
             csv.append(values.joinToString(",") { value ->
                 "\"${value.replace("\"", "\"\"")}\""
