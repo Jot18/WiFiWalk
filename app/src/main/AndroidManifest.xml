@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Wi-Fi survey information can be location-sensitive. This application does not read GPS. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-feature android:name="android.hardware.wifi" android:required="true" />
+    <application
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:label="WiFiWalk"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:theme="@style/Theme.WiFiWalk"
+        android:supportsRtl="true">
+        <activity android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="unspecified">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
