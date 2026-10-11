@@ -1,3 +1,21 @@
+# WiFiWalk v0.3 — Android Wi-Fi survey and diagnostics
+
+**New in v0.3:** connected Wi-Fi refresh now actively resamples (with sample timestamp), live foreground RSSI history graph, observed connected-access-point roaming events, manual nearby SSID and BSSID scan, basic visible-channel counts, an opt-in HTTP responsiveness test, US feet/meters units, and an optional higher-resolution imagery source.
+
+## v0.3 features and important limits
+
+- **Map:** optional public USGS/USDA orthoimagery, or optional **Esri World Imagery** for higher-detail aerial backgrounds where available. Choose from the app's Imagery menu. Esri use is governed by [Esri service terms](https://www.esri.com/en-us/legal/terms/web-site-service) and the optional Esri option is intended only for permissible **noncommercial** use; please verify the terms for your situation. Esri owns/licences its imagery—it is **not** public domain or covered by WiFiWalk's MIT source license. Visible in-app attribution is provided. Imagery is not live, capture dates are provider-dependent. No Google satellite images are extracted or scraped. Imported user maps remain supported.
+- **Units:** switch between **feet (ft)** and **meters (m)**; the chosen unit affects map area width, not signal dBm or channel MHz.
+- **Signal:** updates about every 1.5 seconds only while the app is visible. A manual Refresh button makes a fresh connection reading and shows its timestamp, even if RSSI is unchanged. Roaming entries record observed connected BSSID changes; background logging is not currently provided.
+- **Scan:** tap **Scan nearby networks** to request a fresh Android Wi-Fi scan. Android may throttle requests and return results from previous scans; WiFiWalk displays approximate ages. Visible AP counts by channel are not true measurements of spectrum utilization or interference.
+- **Tests:** explicit manual 3-request test to Google's HTTP 204 endpoint; measures end-to-end HTTP responsiveness, **not** ping, internet throughput or Wi-Fi PHY speed. No tests run automatically or in the background. The test sends standard requests to Google but does not send Wi-Fi survey data.
+- **Privacy:** survey, Wi-Fi readings, BSSID roam history, and aerial image snapshots remain local. Optional imagery downloads send requested bounding boxes to imagery servers. Exact indoor phone location is not inferred from satellite imagery. Wi-Fi scanning requires Android location permission and system Location enabled. `CHANGE_WIFI_STATE` only permits user-initiated scans.
+- **Storage:** app data stays in private Android storage. Export surveys before uninstalling—debug APKs can be signed with incompatible keys on different GitHub runners.
+
+The [GitHub Actions page](https://github.com/Jot18/WiFiWalk/actions) has the installable `WiFiWalk-debug` artifact in successful **Android debug APK** workflows; unzip it to obtain `app-debug.apk`. This remains a test build and real-device behavior may differ by manufacturer.
+
+---
+
 # WiFiWalk — Android Wi-Fi coverage survey
 
 Free open-source Android application for measuring the **currently connected Wi-Fi signal** and placing readings on a floor plan or a **real USGS aerial imagery background**. Built with Kotlin and native Android views. No AI API, registration, or paid map service.
