@@ -51,7 +51,7 @@ class MainActivity : Activity() {
     private var planImportId: String? = null
     private var saveEnabled = true
     private var satelliteLoading = false
-    private var satelliteSpan = 140.0
+    private var satelliteSpan = 60.0
     private lateinit var container: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -297,7 +297,7 @@ class MainActivity : Activity() {
         container.addView(gap(8))
 
         // Satellite imagery is an optional online background, not a live satellite feed.
-        container.addView(button(if (satelliteLoading) "Loading USGS imagery…" else "🛰  Satellite — use my location", true) {
+        container.addView(button(if (satelliteLoading) "Loading aerial imagery…" else "🛰  Satellite — use my location", true) {
             if (!satelliteLoading) usePhonePositionForSatellite(survey)
         })
         container.addView(gap(7))
@@ -306,10 +306,16 @@ class MainActivity : Activity() {
             button("Area: ${satelliteSpan.toInt()} m  ▾") { chooseSatelliteArea() }
         )
         container.addView(gap(6))
-        if (survey.satelliteLat != null && survey.satelliteLon != null) {
+        if (survey.satelliteLat != null && survey.satelliteLon != null &&
+            survey.satelliteSpanMeters != null) {
             container.addView(text("Satellite centered: ${"%.5f".format(Locale.US, survey.satelliteLat)}, " +
                 "${"%.5f".format(Locale.US, survey.satelliteLon)}  •  Saved for offline viewing", 11f, muted))
-            container.addView(gap(5))
+            container.addView(gap(7))
+            container.addView(button("↻  Refresh sharper satellite image") {
+                if (!satelliteLoading) fetchSatelliteForSurvey(survey,
+                    survey.satelliteLat!!, survey.satelliteLon!!, survey.satelliteSpanMeters!!)
+            })
+            container.addView(gap(7))
         }
         container.addView(text("USDA / USGS aerial imagery needs internet to download. Capture dates vary; " +
             "using my location sends the selected area to the imagery provider. Wi-Fi samples remain on-device.", 11f, muted))
@@ -435,10 +441,11 @@ class MainActivity : Activity() {
 
 
     private fun chooseSatelliteArea() {
-        val spans = doubleArrayOf(60.0, 140.0, 300.0, 600.0)
+        val spans = doubleArrayOf(40.0, 60.0, 100.0, 140.0, 300.0, 600.0)
         val descriptions = arrayOf(
-            "60 m — house", "140 m — house & garden",
-            "300 m — nearby properties", "600 m — neighborhood"
+            "40 m — close-up of house", "60 m — house",
+            "100 m — house & garden", "140 m — nearby houses",
+            "300 m — neighborhood", "600 m — wider neighborhood"
         )
         AlertDialog.Builder(this).setTitle("Satellite area width")
             .setSingleChoiceItems(descriptions, spans.indexOfFirst { it == satelliteSpan }) { dialog, index ->
@@ -460,7 +467,7 @@ class MainActivity : Activity() {
             setHintTextColor(muted)
         }
         AlertDialog.Builder(this).setTitle("Center satellite image on coordinates")
-            .setMessage("Enter coordinates from your phone or a map. Only the requested area is sent to USGS.")
+            .setMessage("Enter coordinates from your phone or a map. Only the requested area is sent to the selected imagery provider.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Load satellite") { _, _ ->
@@ -540,13 +547,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun fetchSatelliteForSurvey(survey: WifiSurvey, lat: Double, lon: Double) {
+    private fun fetchSatelliteForSurvey(survey: WifiSurvey, lat: Double, lon: Double,
+                                        spanMeters: Double = satelliteSpan) {
         if (satelliteLoading) return
         if (survey.samples.isNotEmpty()) {
-            showError("Create a new survey", "The map cannot be re-centered after readings have been recorded. Create a new survey.")
-            return
+            val sameExtent = survey.satelliteLat == lat &&
+                survey.satelliteLon == lon && survey.satelliteSpanMeters == spanMeters
+            if (!sameExtent) {
+                showError("Create a new survey", "Moving the map would shift existing Wi-Fi measurement points. " +
+                    "Use Refresh sharper satellite image to update the picture without moving readings, " +
+                    "or create a new survey for a different area.")
+                return
+            }
         }
-        val span = satelliteSpan
+        val span = spanMeters
         satelliteLoading = true
         render()
         Toast.makeText(this, "Downloading USDA / USGS aerial imagery…", Toast.LENGTH_LONG).show()
