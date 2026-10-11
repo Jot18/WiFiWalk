@@ -32,6 +32,7 @@ data class WifiSurvey(
     var satelliteLat: Double? = null,
     var satelliteLon: Double? = null,
     var satelliteSpanMeters: Double? = null,
+    var satelliteProvider: String = "usgs",
     val samples: MutableList<SignalSample> = mutableListOf()
 )
 
@@ -75,6 +76,7 @@ class SurveyStore(private val context: Context) {
                     satelliteLat = if (obj.has("satelliteLat") && !obj.isNull("satelliteLat")) obj.optDouble("satelliteLat") else null,
                     satelliteLon = if (obj.has("satelliteLon") && !obj.isNull("satelliteLon")) obj.optDouble("satelliteLon") else null,
                     satelliteSpanMeters = if (obj.has("satelliteSpanMeters") && !obj.isNull("satelliteSpanMeters")) obj.optDouble("satelliteSpanMeters") else null,
+                    satelliteProvider = obj.optString("satelliteProvider", "usgs"),
                     samples = samples
                 )
             }
@@ -113,6 +115,7 @@ class SurveyStore(private val context: Context) {
                 .put("satelliteLat", survey.satelliteLat)
                 .put("satelliteLon", survey.satelliteLon)
                 .put("satelliteSpanMeters", survey.satelliteSpanMeters)
+                .put("satelliteProvider", survey.satelliteProvider)
                 .put("samples", sampleArray))
         }
         root.put("surveys", arr)
@@ -155,13 +158,15 @@ class SurveyStore(private val context: Context) {
             survey.satelliteLat = null
             survey.satelliteLon = null
             survey.satelliteSpanMeters = null
+            survey.satelliteProvider = "usgs"
         } finally {
             temp.delete()
         }
     }
 
     /** Write a verified JPEG snapshot atomically; metadata is saved by the activity. */
-    fun importSatellite(survey: WifiSurvey, bytes: ByteArray, lat: Double, lon: Double, spanMeters: Double) {
+    fun importSatellite(survey: WifiSurvey, bytes: ByteArray, lat: Double, lon: Double,
+                        spanMeters: Double, provider: String = "usgs") {
         if (survey.samples.isNotEmpty()) {
             // Allow replacing blurry imagery while keeping the *same* map extent.
             // Otherwise existing normalized map sample positions would be shifted.
@@ -182,6 +187,7 @@ class SurveyStore(private val context: Context) {
             survey.satelliteLat = lat
             survey.satelliteLon = lon
             survey.satelliteSpanMeters = spanMeters
+            survey.satelliteProvider = provider
         } finally {
             temp.delete()
         }
