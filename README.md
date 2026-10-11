@@ -1,77 +1,66 @@
-# WiFiWalk — native, offline Wi-Fi survey for Android
+# WiFiWalk — Android Wi-Fi coverage survey
 
-WiFiWalk is an open-source Android MVP for mapping **measured connected-network Wi-Fi signal strength** onto a floor plan. No AI APIs, accounts, telemetry, paid services, or remote servers.
+Free open-source Android application for measuring the **currently connected Wi-Fi signal** and placing readings on a floor plan or a **real USGS aerial imagery background**. Built with Kotlin and native Android views. No AI API, registration, or paid map service.
 
-## Features in v0.1.0
+## Features — v0.2
 
-- Import a PNG/JPEG floor plan using Android's secure document picker (or use the built-in blank grid).
-- Stand at a location, tap that same spot, and record the current connected Wi-Fi RSSI (dBm).
-- Record SSID, BSSID, channel frequency, link speed and timestamps when Android exposes them.
-- Save multiple surveys and switch between them.
-- Display measured points on a map. Optional IDW heatmap, restricted to areas near measured points.
-- View individual readings, delete readings, undo the latest sample, rename and delete surveys.
-- Export CSV with normalized map coordinates, timestamps and network metadata.
-- All surveys and imported images stay inside Android's private app storage. No `INTERNET` permission.
+- Live connected Wi-Fi RSSI, SSID, BSSID, frequency and negotiated link speed when Android exposes them.
+- Import a floor-plan image or choose **Satellite — use my location** to download a georeferenced aerial snapshot near you.
+- Alternative **Enter coordinates** option when the phone's GPS center is not accurate enough.
+- Select an aerial image area width: 60, 140, 300, or 600 meters.
+- Tap the corresponding location on the displayed image to record RSSI measurements.
+- Plot color-coded points, optional nearby-only interpolated signal heatmap, survey management, CSV export.
+- Satellite-based samples include approximate latitude and longitude computed from the clicked map location.
+- Saved satellite snapshot and Wi-Fi survey readings remain usable offline.
+- No background location collection and no Wi-Fi survey uploads.
 
-## Install / build
+## Satellite imagery — important distinctions
 
-1. Install [Android Studio](https://developer.android.com/studio) and Android SDK Platform **35**.
-2. Extract this project and choose **Open** in Android Studio; select its `WiFiWalk` root folder.
-3. Allow Gradle to download the declared dependencies and create a Gradle wrapper if Android Studio asks. This archive contains `gradle-wrapper.properties` but not `gradle-wrapper.jar` (see below).
-4. Plug in an Android 8.0+ phone with USB debugging enabled, select it in Android Studio, and choose **Run**.
-5. Alternatively, use Android Studio **Build > Build APK(s)**. Output is typically `app/build/outputs/apk/debug/app-debug.apk`.
+Satellite mode uses **USGS The National Map / USDA NAIP** public aerial imagery through the USGSNAIPImagery ImageServer.
 
-The app uses Android Gradle Plugin `8.9.2`, Kotlin Android plugin `2.1.20`, Gradle `8.11.1`, Java 17 and compileSdk 35. Android Studio can supply Gradle; alternatively generate a wrapper with a local Gradle 8.11.1 installation (`gradle wrapper --gradle-version 8.11.1`).
+- **Not live:** imagery was captured in the past. Capture dates and available resolution vary geographically.
+- **Internet is required to download or change the satellite image.** The selected location and map extent are sent to USGS to retrieve the imagery.
+- Map selection is manual. The phone's position is used only to center an image; it cannot determine which room you are inside or where you tapped.
+- Changing the center/scale after readings exist would invalidate old coordinates, so WiFiWalk blocks background replacement for surveys that already contain readings. Start a new survey to change the map.
+- USGS aerial coverage is best within the United States. If the service is unavailable, import your own map image instead.
+- Imagery acknowledgment: **USGS The National Map / USDA NAIP**. https://www.usgs.gov/ .
 
-> This project was assembled without an Android SDK/Gradle build environment. The source is provided as an Android Studio project **but no compiled APK or device-test claim is made**.
+## Get an APK
 
-## How to survey
+Go to the GitHub [Actions](../../actions) page, open a **successful** Android debug APK workflow and download the `WiFiWalk-debug` artifact. Unzip it and install `app-debug.apk` on Android 8.0+.
 
-1. Connect the phone to the Wi-Fi network of interest.
-2. Enable Android **Location** and grant **Precise location** permission when asked. This is an Android requirement for Wi-Fi identity/scan information; WiFiWalk doesn't read GPS.
-3. Open **Map**, import a floor-plan image if desired.
-4. Stand in the actual room and tap your corresponding position in the floor plan.
-5. Move to other positions and continue recording. Allow readings a moment to settle after walking.
-6. Use **Readings** to inspect measurements and access point identities; export results as CSV.
+These are **debug APKs**, intended for testing, not a signed production store release. GitHub-hosted runners may generate a different debug signing key for each build. If the next APK reports a signature conflict, **export readings before uninstalling** the existing app; uninstalling erases its private data. A stable release signing process is planned.
 
-The colored map is a **visualization of measurements**, not a calibrated propagation simulation. Strength thresholds are approximate and do not guarantee speed, latency or call quality. The heatmap does not claim knowledge far beyond measurement points.
+## Build from source
 
-## Scope limits, known issues
+The GitHub Actions workflow installs Android SDK Platform 35 and runs Gradle 8.11.1 `:app:assembleDebug`. On your computer, use Android Studio with JDK 17, Android SDK 35, Android Gradle Plugin 8.9.2, and Kotlin 2.1.20. Android Studio can build the APK from the project.
 
-- **Only the Wi-Fi network currently connected to the device** is sampled. v0.1 does *not* scan all neighboring SSIDs or maintain a live roam log.
-- Android 12+ exposes `WifiInfo` via `ConnectivityManager` callbacks with `FLAG_INCLUDE_LOCATION_INFO`. The app has a compatibility fallback to `WifiManager.getConnectionInfo()`. The latter is deprecated and may be redacted by some device builds.
-- Location permission and enabled Android Location services are required for full Wi-Fi details. SSID/BSSID may legitimately appear as `Unknown` if Android restricts access.
-- The app requests no `NEARBY_WIFI_DEVICES` permission because it doesn't use connection-management or active-scanning APIs.
-- `link_speed_mbps` describes Wi-Fi negotiated link rate, **not measured throughput**.
-- All placement is manual; no indoor positioning or device-to-floor-plan calibration.
-- CSV export includes coordinates relative to the imported floor-plan image (0–1), not GPS coordinates.
-- Wi-Fi callback values can occasionally be stale; the app warns when it knows a cached value is older than 15 seconds.
-- Imported images are limited to 20 MB and decoded at reduced resolution for display.
-- Survey data is kept only in the app's private storage; export before uninstall or clearing application data.
+## Use
 
-## Privacy
+1. Connect to the Wi-Fi network you want to test.
+2. Enable system Location and grant **Precise location** to WiFiWalk. Android requires this for Wi-Fi SSID/BSSID metadata.
+3. Open Map and load an aerial background near your current phone position, enter coordinates, or import a floor plan.
+4. Physically stand at a sample location and tap the **same place on the displayed map**.
+5. Repeat and view color-coded points. Export CSV to preserve your work.
+6. Revisit areas after changing routers and compare the surveys.
 
-Permissions: `ACCESS_FINE_LOCATION`, `ACCESS_WIFI_STATE`, `ACCESS_NETWORK_STATE`. No GPS readings are requested. Android may classify Wi-Fi metadata as location-sensitive, hence the first permission. There is no network upload code and no `INTERNET` permission in the manifest. All documents are chosen by the user via Storage Access Framework.
+## Scope and privacy
 
-## Structure
+- The app currently samples **only the active connected Wi-Fi**, not all networks nearby. BSSID roam history, local throughput testing and continuous walk mode are future features.
+- Android's connected-network info may be restricted or redacted; location services and permission must be enabled.
+- `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_WIFI_STATE`, and `ACCESS_NETWORK_STATE` support network diagnostics; `INTERNET` is used **only for optional satellite image downloads**.
+- Wi-Fi readings and imported backgrounds are saved in Android's private app storage. No telemetry or user account. No Wi-Fi readings are sent over the internet.
+- Coverage interpolation is an estimate and does not predict actual throughput. Wi-Fi link speed is not measured throughput.
 
-- `app/src/main/java/dev/wifiwalk/app/MainActivity.kt` — dark native UI, survey workflows and document pickers.
-- `app/src/main/java/dev/wifiwalk/app/WifiReader.kt` — connected Wi-Fi info with Android version compatibility.
-- `app/src/main/java/dev/wifiwalk/app/SurveyMapView.kt` — native Canvas floor plan, measured points and IDW heatmap.
-- `app/src/main/java/dev/wifiwalk/app/SurveyStore.kt` — AtomicFile JSON persistence, floor plans and CSV export.
+## Project files
 
-## Roadmap
-
-- [ ] Automated validation on an Android 16 device and on older supported API versions.
-- [ ] Native Nearby AP scan screen with Android-permission and throttling-aware UX.
-- [ ] BSSID roaming event timeline.
-- [ ] Before/after heatmap comparisons aligned to the same floor plan.
-- [ ] In-home throughput tests against an optional open-source local test server.
-- [ ] JSON + floor plan archive backup/import.
-- [ ] User-configurable RSSI bands, map calibration, and filter points by BSSID.
-- [ ] Accessible map interactions including magnification and pan/zoom.
-- [ ] Automated Kotlin tests and a GitHub Actions Android build.
+- `MainActivity.kt` — dark theme UI, GPS permission and location selection, survey workflow
+- `WifiReader.kt` — connected-network signal and identity
+- `SurveyMapView.kt` — image background, measurement markers and interpolated heatmap
+- `SatelliteImagery.kt` — USGS aerial image download and Web Mercator coordinate math
+- `SurveyStore.kt` — local JSON persistence, offline image snapshots and CSV export
+- `.github/workflows/android.yml` — repeatable debug APK compilation on GitHub
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Contributions welcome.
+MIT — see [LICENSE](LICENSE). Contributions and bug reports welcome.
