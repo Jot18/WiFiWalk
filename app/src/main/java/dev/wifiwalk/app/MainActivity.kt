@@ -23,6 +23,7 @@ import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -42,6 +43,17 @@ class MainActivity : Activity() {
 
     private lateinit var store: SurveyStore
     private lateinit var wifi: WifiReader
+    private lateinit var monitor: WifiMonitor
+    private lateinit var scanner: NearbyWifiScanner
+    private var scanBand = "All"
+    private var useFeet = true
+    private var imageryMode = "usgs"
+    private var connState: TextView? = null
+    private var connTitle: TextView? = null
+    private var connDesc: TextView? = null
+    private var signalSummary: TextView? = null
+    private var signalChart: SignalChartView? = null
+    private var roamContainer: LinearLayout? = null
     private var surveys: MutableList<WifiSurvey> = mutableListOf()
     private var selectedId: String = ""
     private var activeTab = 0
@@ -60,6 +72,11 @@ class MainActivity : Activity() {
         window.navigationBarColor = bgColor
         store = SurveyStore(this)
         wifi = WifiReader(this)
+        monitor = WifiMonitor(wifi)
+        scanner = NearbyWifiScanner(this)
+        useFeet = getPreferences(MODE_PRIVATE).getBoolean("feet", true)
+        imageryMode = getPreferences(MODE_PRIVATE).getString("imagery_mode", "usgs") ?: "usgs"
+        monitor.onUpdate = { updateLiveWidgets() }
         heatmap = getPreferences(MODE_PRIVATE).getBoolean("heatmap", true)
         try {
             surveys = store.load()
@@ -115,6 +132,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         wifi.start()
+        monitor.start()
     }
 
     override fun onResume() {
@@ -123,6 +141,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        monitor.stop()
         wifi.stop()
         super.onStop()
     }
@@ -210,7 +229,7 @@ class MainActivity : Activity() {
         choose.addView(picker)
         container.addView(choose)
         container.addView(gap(12))
-        val connection = wifi.read()
+        val connection = monitor.latest ?: wifi.read(forceFresh = true)
         val needsPermission = !wifi.hasPermission()
         val needsLocation = !locationServicesOn()
         val signal = panel()
@@ -222,10 +241,12 @@ class MainActivity : Activity() {
             connection == null -> "● Not available"
             else -> "● Connected"
         }
-        label.addView(text(state, 11f, if (connection == null) red else teal, true))
+        connState = text(state, 11f, if (connection == null) red else teal, true)
+        label.addView(connState)
         signal.addView(label)
         signal.addView(gap(8))
-        signal.addView(text(connection?.ssid ?: "Wi-Fi reading unavailable", 18f, foreground, true))
+        connTitle = text(connection?.ssid ?: "Wi-Fi reading unavailable", 18f, foreground, true)
+        signal.addView(connTitle)
         val desc = when {
             needsPermission -> "Allow precise location access to read your Wi-Fi signal and access-point details. We do not collect GPS coordinates."
             needsLocation -> "Turn on the phone's Location switch; Android requires it for Wi-Fi information."
@@ -235,7 +256,8 @@ class MainActivity : Activity() {
                 "${connection.rssi} dBm  ·  $band  ·  ${connection.frequencyMhz} MHz\nAP: ${connection.bssid}"
             }
         }
-        signal.addView(text(desc, 12f, muted))
+        connDesc = text(desc, 12f, muted)
+        signal.addView(connDesc)
         signal.addView(gap(9))
         when {
             needsPermission -> signal.addView(button("Allow Wi-Fi access", true) {
@@ -246,26 +268,40 @@ class MainActivity : Activity() {
             })
         }
         signal.addView(gap(7))
-        signal.addView(button("↻  Refresh connection") { render() })
+        signal.addView(button("↻  Refresh connection") {
+            val fresh = monitor.sample(true)
+            toast(if (fresh != null) "Sampled now: ${fresh.rssi} dBm" else "No Wi-Fi reading — check permissions")
+            updateLiveWidgets()
+        })
         container.addView(signal)
         container.addView(gap(14))
 
         val tabs = row()
-        listOf("Map", "Readings", "Guide").forEachIndexed { i, title ->
+        listOf("Map", "Signal", "Scan", "Readings", "Guide").forEachIndexed { i, title ->
             val b = button(title, filled = false) { activeTab = i; render() }
             b.background = shape(if (activeTab == i) Color.rgb(21, 76, 78) else surface, 12,
                 if (activeTab == i) teal else border)
-            val lp = LinearLayout.LayoutParams(0, -2, 1f)
-            if (i > 0) lp.leftMargin = dp(8)
+            val lp = LinearLayout.LayoutParams(dp(104), -2)
+            if (i > 0) lp.leftMargin = dp(7)
             tabs.addView(b, lp)
         }
-        container.addView(tabs)
+        val tabScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(tabs)
+        }
+        container.addView(tabScroll)
         container.addView(gap(14))
+        signalSummary = null
+        signalChart = null
+        roamContainer = null
         when (activeTab) {
             0 -> renderMap(survey)
-            1 -> renderReadings(survey)
+            1 -> renderSignalDashboard()
+            2 -> renderNearbyScan()
+            3 -> renderReadings(survey)
             else -> renderGuide()
         }
+        updateLiveWidgets()
         container.addView(gap(12))
         container.addView(text("No account  •  No AI  •  No cloud uploads", 11f, muted).apply {
             gravity = Gravity.CENTER
